@@ -1,92 +1,100 @@
 const express = require('express');
 const cors = require('cors');
-const ytdl = require('@distube/ytdl-core');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// Force ytdl to use YouTube's innerTube API instead of parsing watch.html
-const agentOptions = {
-  pipedagent: true,
-  requestOptions: {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
-    }
-  }
-};
+// Use public Cobalt instance processing engine to bypass watch.html parsing entirely
+const COBALT_API = 'https://api.cobalt.tools/api/json';
 
 app.get('/', (req, res) => {
-  res.send('Proxy Backend is active and running!');
+  res.send('Proxy Backend (Cobalt Engine) active!');
 });
 
-// Endpoint 1: Fetch Metadata via InnerTube API
+// Endpoint 1: Fetch Video Metadata
 app.get('/info', async (req, res) => {
   const videoUrl = req.query.url;
-  if (!videoUrl || !ytdl.validateURL(videoUrl)) {
-    return res.status(400).json({ error: 'Valid YouTube URL or ID required' });
-  }
+  if (!videoUrl) return res.status(400).json({ error: 'URL required' });
 
   try {
-    // Uses iOS innerTube client to avoid parsing watch.html
-    const info = await ytdl.getBasicInfo(videoUrl, agentOptions);
+    const response = await fetch(COBALT_API, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url: videoUrl })
+    });
+
+    const data = await response.json();
+    if (data.status === 'error') throw new Error(data.text);
+
     res.json({
-      title: info.videoDetails.title,
-      author: info.videoDetails.author?.name || 'Unknown Artist',
-      lengthSeconds: info.videoDetails.lengthSeconds,
-      thumbnail: info.videoDetails.thumbnails?.pop()?.url || ''
+      title: 'YouTube Stream',
+      streamUrl: data.url
     });
   } catch (err) {
-    console.error('Metadata Error:', err.message);
-    res.status(500).json({ error: 'Failed to retrieve video information: ' + err.message });
+    res.status(500).json({ error: 'Engine Error: ' + err.message });
   }
 });
 
-// Endpoint 2: Stream Video
+// Endpoint 2: Full Video Stream Piping
 app.get('/stream', async (req, res) => {
   const videoUrl = req.query.url;
-  if (!videoUrl || !ytdl.validateURL(videoUrl)) {
-    return res.status(400).send('Valid YouTube URL or ID required');
-  }
+  if (!videoUrl) return res.status(400).send('URL required');
 
   try {
+    const response = await fetch(COBALT_API, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url: videoUrl, videoQuality: 'max' })
+    });
+
+    const data = await response.json();
+    if (!data.url) throw new Error('Failed to resolve media stream');
+
+    // Pipe direct media stream through Render to frontend
+    const streamRes = await fetch(data.url);
     res.setHeader('Content-Type', 'video/mp4');
-    ytdl(videoUrl, { 
-      filter: 'audioandvideo', 
-      quality: 'highestvideo',
-      ...agentOptions
-    }).pipe(res);
+    
+    const arrayBuffer = await streamRes.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
   } catch (err) {
-    console.error('Video Stream Error:', err.message);
-    if (!res.headersSent) {
-      res.status(500).send('Video Stream Error: ' + err.message);
-    }
+    if (!res.headersSent) res.status(500).send('Stream Error: ' + err.message);
   }
 });
 
-// Endpoint 3: Stream Audio
+// Endpoint 3: Audio-Only Stream (YT Music)
 app.get('/audio', async (req, res) => {
   const videoUrl = req.query.url;
-  if (!videoUrl || !ytdl.validateURL(videoUrl)) {
-    return res.status(400).send('Valid YouTube URL or ID required');
-  }
+  if (!videoUrl) return res.status(400).send('URL required');
 
   try {
+    const response = await fetch(COBALT_API, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url: videoUrl, isAudioOnly: true })
+    });
+
+    const data = await response.json();
+    if (!data.url) throw new Error('Failed to resolve audio stream');
+
+    const streamRes = await fetch(data.url);
     res.setHeader('Content-Type', 'audio/mpeg');
-    ytdl(videoUrl, { 
-      filter: 'audioonly', 
-      quality: 'highestaudio',
-      ...agentOptions
-    }).pipe(res);
+    
+    const arrayBuffer = await streamRes.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
   } catch (err) {
-    console.error('Audio Stream Error:', err.message);
-    if (!res.headersSent) {
-      res.status(500).send('Audio Stream Error: ' + err.message);
-    }
+    if (!res.headersSent) res.status(500).send('Audio Error: ' + err.message);
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend proxy running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
