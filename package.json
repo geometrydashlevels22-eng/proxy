@@ -1,13 +1,13 @@
 {
   "name": "yt-proxy-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Node.js streaming backend proxy for YouTube and YouTube Music",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.15.9",
+    "@distube/ytdl-core": "latest",
     "cors": "^2.8.5",
     "express": "^4.19.2"
   },
