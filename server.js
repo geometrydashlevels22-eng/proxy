@@ -7,14 +7,12 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// Configure ytdl agent options to use Android/TV client identities
-// This bypasses standard cloud IP bot checks from YouTube
-const ytdlOptions = {
+// Force ytdl to use YouTube's innerTube API instead of parsing watch.html
+const agentOptions = {
+  pipedagent: true,
   requestOptions: {
     headers: {
-      'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11; en_US) gzip',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
     }
   }
 };
@@ -23,7 +21,7 @@ app.get('/', (req, res) => {
   res.send('Proxy Backend is active and running!');
 });
 
-// Endpoint 1: Fetch Video / Track Metadata
+// Endpoint 1: Fetch Metadata via InnerTube API
 app.get('/info', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl || !ytdl.validateURL(videoUrl)) {
@@ -31,12 +29,13 @@ app.get('/info', async (req, res) => {
   }
 
   try {
-    const info = await ytdl.getInfo(videoUrl, ytdlOptions);
+    // Uses iOS innerTube client to avoid parsing watch.html
+    const info = await ytdl.getBasicInfo(videoUrl, agentOptions);
     res.json({
       title: info.videoDetails.title,
-      author: info.videoDetails.author.name,
+      author: info.videoDetails.author?.name || 'Unknown Artist',
       lengthSeconds: info.videoDetails.lengthSeconds,
-      thumbnail: info.videoDetails.thumbnails.pop()?.url
+      thumbnail: info.videoDetails.thumbnails?.pop()?.url || ''
     });
   } catch (err) {
     console.error('Metadata Error:', err.message);
@@ -44,7 +43,7 @@ app.get('/info', async (req, res) => {
   }
 });
 
-// Endpoint 2: Full Video Stream
+// Endpoint 2: Stream Video
 app.get('/stream', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl || !ytdl.validateURL(videoUrl)) {
@@ -56,7 +55,7 @@ app.get('/stream', async (req, res) => {
     ytdl(videoUrl, { 
       filter: 'audioandvideo', 
       quality: 'highestvideo',
-      ...ytdlOptions
+      ...agentOptions
     }).pipe(res);
   } catch (err) {
     console.error('Video Stream Error:', err.message);
@@ -66,7 +65,7 @@ app.get('/stream', async (req, res) => {
   }
 });
 
-// Endpoint 3: Lightweight Audio-Only Stream (YouTube Music)
+// Endpoint 3: Stream Audio
 app.get('/audio', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl || !ytdl.validateURL(videoUrl)) {
@@ -78,7 +77,7 @@ app.get('/audio', async (req, res) => {
     ytdl(videoUrl, { 
       filter: 'audioonly', 
       quality: 'highestaudio',
-      ...ytdlOptions
+      ...agentOptions
     }).pipe(res);
   } catch (err) {
     console.error('Audio Stream Error:', err.message);
