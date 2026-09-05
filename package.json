@@ -1,14 +1,15 @@
 {
   "name": "yt-proxy-backend",
-  "version": "2.0.0",
-  "description": "Stream proxy using Cobalt API engine",
+  "version": "3.0.0",
+  "description": "Stream proxy using yt-dlp backend engine",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "youtube-dl-exec": "^3.0.10"
   },
   "engines": {
     "node": ">=18.0.0"
