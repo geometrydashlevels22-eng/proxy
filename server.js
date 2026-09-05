@@ -7,11 +7,15 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// Custom request options to mimic standard web traffic and avoid bot detection
-const requestOptions = {
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9'
+// Configure ytdl agent options to use Android/TV client identities
+// This bypasses standard cloud IP bot checks from YouTube
+const ytdlOptions = {
+  requestOptions: {
+    headers: {
+      'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11; en_US) gzip',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+    }
   }
 };
 
@@ -27,7 +31,7 @@ app.get('/info', async (req, res) => {
   }
 
   try {
-    const info = await ytdl.getInfo(videoUrl, { requestOptions });
+    const info = await ytdl.getInfo(videoUrl, ytdlOptions);
     res.json({
       title: info.videoDetails.title,
       author: info.videoDetails.author.name,
@@ -52,7 +56,7 @@ app.get('/stream', async (req, res) => {
     ytdl(videoUrl, { 
       filter: 'audioandvideo', 
       quality: 'highestvideo',
-      requestOptions
+      ...ytdlOptions
     }).pipe(res);
   } catch (err) {
     console.error('Video Stream Error:', err.message);
@@ -74,7 +78,7 @@ app.get('/audio', async (req, res) => {
     ytdl(videoUrl, { 
       filter: 'audioonly', 
       quality: 'highestaudio',
-      requestOptions
+      ...ytdlOptions
     }).pipe(res);
   } catch (err) {
     console.error('Audio Stream Error:', err.message);
