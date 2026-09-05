@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const { spawn } = require('child_process');
 const youtubedl = require('youtube-dl-exec');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,55 +37,77 @@ app.get('/info', async (req, res) => {
   }
 });
 
-// Endpoint 2: Direct Binary Stream (Video)
-app.get('/stream', (req, res) => {
+// Endpoint 2: Stream Video with Spoofed Browser Headers
+app.get('/stream', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send('URL required');
 
-  res.setHeader('Content-Type', 'video/mp4');
+  try {
+    const output = await youtubedl(videoUrl, {
+      dumpSingleJson: true,
+      format: 'b[ext=mp4]/best[ext=mp4]/best'
+    });
 
-  // Spawn yt-dlp to stream output directly to stdout
-  const ytProcess = spawn('npx', [
-    'yt-dlp',
-    '-f', 'b[ext=mp4]/best[ext=mp4]/best',
-    '-o', '-',
-    videoUrl
-  ]);
+    if (!output.url) throw new Error('No stream URL resolved');
 
-  ytProcess.stdout.pipe(res);
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Referer': 'https://www.youtube.com/'
+      }
+    };
 
-  ytProcess.stderr.on('data', (data) => {
-    console.error(`yt-dlp stderr: ${data}`);
-  });
+    res.setHeader('Content-Type', 'video/mp4');
 
-  req.on('close', () => {
-    ytProcess.kill();
-  });
+    https.get(output.url, options, (stream) => {
+      // Forward HTTP status code if YouTube returns an error (e.g., 403)
+      if (stream.statusCode >= 400) {
+        return res.status(stream.statusCode).send(`YouTube CDN Error: ${stream.statusCode}`);
+      }
+      stream.pipe(res);
+    }).on('error', (err) => {
+      if (!res.headersSent) res.status(500).send('Pipe Error: ' + err.message);
+    });
+
+  } catch (err) {
+    if (!res.headersSent) res.status(500).send('Stream Error: ' + err.message);
+  }
 });
 
-// Endpoint 3: Direct Binary Stream (Audio / YT Music)
-app.get('/audio', (req, res) => {
+// Endpoint 3: Stream Audio with Spoofed Browser Headers
+app.get('/audio', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send('URL required');
 
-  res.setHeader('Content-Type', 'audio/mpeg');
+  try {
+    const output = await youtubedl(videoUrl, {
+      dumpSingleJson: true,
+      format: 'bestaudio/best'
+    });
 
-  const ytProcess = spawn('npx', [
-    'yt-dlp',
-    '-f', 'bestaudio/best',
-    '-o', '-',
-    videoUrl
-  ]);
+    if (!output.url) throw new Error('No audio URL resolved');
 
-  ytProcess.stdout.pipe(res);
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Referer': 'https://www.youtube.com/'
+      }
+    };
 
-  ytProcess.stderr.on('data', (data) => {
-    console.error(`yt-dlp stderr: ${data}`);
-  });
+    res.setHeader('Content-Type', 'audio/mpeg');
 
-  req.on('close', () => {
-    ytProcess.kill();
-  });
+    https.get(output.url, options, (stream) => {
+      if (stream.statusCode >= 400) {
+        return res.status(stream.statusCode).send(`YouTube CDN Error: ${stream.statusCode}`);
+      }
+      stream.pipe(res);
+    }).on('error', (err) => {
+      if (!res.headersSent) res.status(500).send('Pipe Error: ' + err.message);
+    });
+
+  } catch (err) {
+    if (!res.headersSent) res.status(500).send('Audio Error: ' + err.message);
+  }
 });
 
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
