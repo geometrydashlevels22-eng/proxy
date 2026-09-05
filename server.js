@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const youtubedl = require('youtube-dl-exec');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,10 +9,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 app.get('/', (req, res) => {
-  res.send('Proxy Backend (yt-dlp Engine) active!');
+  res.send('Proxy Backend active!');
 });
 
-// Endpoint 1: Fetch Video Metadata
+// Endpoint 1: Metadata
 app.get('/info', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).json({ error: 'URL required' });
@@ -22,7 +23,6 @@ app.get('/info', async (req, res) => {
       noWarnings: true,
       noCallHome: true,
       noCheckCertificate: true,
-      preferFreeFormats: true,
       youtubeSkipDashManifest: true,
       referer: 'https://www.youtube.com/'
     });
@@ -33,12 +33,11 @@ app.get('/info', async (req, res) => {
       thumbnail: output.thumbnail
     });
   } catch (err) {
-    console.error('Info Error:', err.message);
-    res.status(500).json({ error: 'Engine Error: ' + err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Endpoint 2: Stream Full Video
+// Endpoint 2: Direct Video Pipe (Fixes 403 Forbidden)
 app.get('/stream', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send('URL required');
@@ -49,16 +48,23 @@ app.get('/stream', async (req, res) => {
       format: 'b[ext=mp4]/best[ext=mp4]/best'
     });
 
-    if (!output.url) throw new Error('No direct stream URL resolved');
+    if (!output.url) throw new Error('No stream URL resolved');
 
-    res.redirect(output.url);
+    res.setHeader('Content-Type', 'video/mp4');
+    
+    // Pipe video data through Render so YouTube sees Render's IP, not yours
+    https.get(output.url, (stream) => {
+      stream.pipe(res);
+    }).on('error', (err) => {
+      res.status(500).send('Pipe Error: ' + err.message);
+    });
+
   } catch (err) {
-    console.error('Stream Error:', err.message);
     if (!res.headersSent) res.status(500).send('Stream Error: ' + err.message);
   }
 });
 
-// Endpoint 3: Stream Audio Only (YT Music)
+// Endpoint 3: Direct Audio Pipe
 app.get('/audio', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send('URL required');
@@ -69,11 +75,17 @@ app.get('/audio', async (req, res) => {
       format: 'bestaudio/best'
     });
 
-    if (!output.url) throw new Error('No direct audio stream URL resolved');
+    if (!output.url) throw new Error('No audio URL resolved');
 
-    res.redirect(output.url);
+    res.setHeader('Content-Type', 'audio/mpeg');
+
+    https.get(output.url, (stream) => {
+      stream.pipe(res);
+    }).on('error', (err) => {
+      res.status(500).send('Pipe Error: ' + err.message);
+    });
+
   } catch (err) {
-    console.error('Audio Error:', err.message);
     if (!res.headersSent) res.status(500).send('Audio Error: ' + err.message);
   }
 });
