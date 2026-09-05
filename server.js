@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const { spawn } = require('child_process');
 const youtubedl = require('youtube-dl-exec');
-const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +12,7 @@ app.get('/', (req, res) => {
   res.send('Proxy Backend active!');
 });
 
-// Endpoint 1: Metadata
+// Endpoint 1: Retrieve Metadata
 app.get('/info', async (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).json({ error: 'URL required' });
@@ -37,57 +37,55 @@ app.get('/info', async (req, res) => {
   }
 });
 
-// Endpoint 2: Direct Video Pipe (Fixes 403 Forbidden)
-app.get('/stream', async (req, res) => {
+// Endpoint 2: Direct Binary Stream (Video)
+app.get('/stream', (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send('URL required');
 
-  try {
-    const output = await youtubedl(videoUrl, {
-      dumpSingleJson: true,
-      format: 'b[ext=mp4]/best[ext=mp4]/best'
-    });
+  res.setHeader('Content-Type', 'video/mp4');
 
-    if (!output.url) throw new Error('No stream URL resolved');
+  // Spawn yt-dlp to stream output directly to stdout
+  const ytProcess = spawn('npx', [
+    'yt-dlp',
+    '-f', 'b[ext=mp4]/best[ext=mp4]/best',
+    '-o', '-',
+    videoUrl
+  ]);
 
-    res.setHeader('Content-Type', 'video/mp4');
-    
-    // Pipe video data through Render so YouTube sees Render's IP, not yours
-    https.get(output.url, (stream) => {
-      stream.pipe(res);
-    }).on('error', (err) => {
-      res.status(500).send('Pipe Error: ' + err.message);
-    });
+  ytProcess.stdout.pipe(res);
 
-  } catch (err) {
-    if (!res.headersSent) res.status(500).send('Stream Error: ' + err.message);
-  }
+  ytProcess.stderr.on('data', (data) => {
+    console.error(`yt-dlp stderr: ${data}`);
+  });
+
+  req.on('close', () => {
+    ytProcess.kill();
+  });
 });
 
-// Endpoint 3: Direct Audio Pipe
-app.get('/audio', async (req, res) => {
+// Endpoint 3: Direct Binary Stream (Audio / YT Music)
+app.get('/audio', (req, res) => {
   const videoUrl = req.query.url;
   if (!videoUrl) return res.status(400).send('URL required');
 
-  try {
-    const output = await youtubedl(videoUrl, {
-      dumpSingleJson: true,
-      format: 'bestaudio/best'
-    });
+  res.setHeader('Content-Type', 'audio/mpeg');
 
-    if (!output.url) throw new Error('No audio URL resolved');
+  const ytProcess = spawn('npx', [
+    'yt-dlp',
+    '-f', 'bestaudio/best',
+    '-o', '-',
+    videoUrl
+  ]);
 
-    res.setHeader('Content-Type', 'audio/mpeg');
+  ytProcess.stdout.pipe(res);
 
-    https.get(output.url, (stream) => {
-      stream.pipe(res);
-    }).on('error', (err) => {
-      res.status(500).send('Pipe Error: ' + err.message);
-    });
+  ytProcess.stderr.on('data', (data) => {
+    console.error(`yt-dlp stderr: ${data}`);
+  });
 
-  } catch (err) {
-    if (!res.headersSent) res.status(500).send('Audio Error: ' + err.message);
-  }
+  req.on('close', () => {
+    ytProcess.kill();
+  });
 });
 
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
