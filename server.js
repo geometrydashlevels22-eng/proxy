@@ -5,10 +5,16 @@ const ytdl = require('@distube/ytdl-core');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enable CORS so local file:// documents can talk to Render
 app.use(cors());
 
-// Health check endpoint
+// Custom request options to mimic standard web traffic and avoid bot detection
+const requestOptions = {
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9'
+  }
+};
+
 app.get('/', (req, res) => {
   res.send('Proxy Backend is active and running!');
 });
@@ -21,7 +27,7 @@ app.get('/info', async (req, res) => {
   }
 
   try {
-    const info = await ytdl.getInfo(videoUrl);
+    const info = await ytdl.getInfo(videoUrl, { requestOptions });
     res.json({
       title: info.videoDetails.title,
       author: info.videoDetails.author.name,
@@ -45,7 +51,8 @@ app.get('/stream', async (req, res) => {
     res.setHeader('Content-Type', 'video/mp4');
     ytdl(videoUrl, { 
       filter: 'audioandvideo', 
-      quality: 'highestvideo' 
+      quality: 'highestvideo',
+      requestOptions
     }).pipe(res);
   } catch (err) {
     console.error('Video Stream Error:', err.message);
@@ -66,7 +73,8 @@ app.get('/audio', async (req, res) => {
     res.setHeader('Content-Type', 'audio/mpeg');
     ytdl(videoUrl, { 
       filter: 'audioonly', 
-      quality: 'highestaudio' 
+      quality: 'highestaudio',
+      requestOptions
     }).pipe(res);
   } catch (err) {
     console.error('Audio Stream Error:', err.message);
@@ -76,7 +84,6 @@ app.get('/audio', async (req, res) => {
   }
 });
 
-// Start listening
 app.listen(PORT, () => {
   console.log(`Backend proxy running on port ${PORT}`);
 });
